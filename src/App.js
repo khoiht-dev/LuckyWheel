@@ -280,29 +280,31 @@ export default function App() {
             )}
           </View>
 
-          {drawnNumber !== null ? (
-            <>
-              <Text style={styles.resultLabel}>Số may mắn của bạn:</Text>
-              <Animated.View 
-                style={[
-                  styles.numberCircle,
-                  isSpinning && { transform: [{ rotate: spin }] }
-                ]}
-              >
-                <Text style={styles.resultNumber}>{drawnNumber}</Text>
-              </Animated.View>
-              <Text style={styles.drawnCount}>
-                Đã quay: {drawnNumbers.length}/{parseInt(maxNumber) - parseInt(minNumber) + 1}
-              </Text>
-            </>
-          ) : (
-            <View style={styles.emptyResult}>
-              <Text style={styles.emptyResultText}>🎲</Text>
-              <Text style={styles.emptyResultSubtext}>
-                Nhấn nút bên dưới để quay số
-              </Text>
-            </View>
-          )}
+          <View style={styles.resultContentWrapper}>
+            {drawnNumber !== null ? (
+              <>
+                <Text style={styles.resultLabel}>Số may mắn của bạn:</Text>
+                <Animated.View 
+                  style={[
+                    styles.numberCircle,
+                    isSpinning && { transform: [{ rotate: spin }] }
+                  ]}
+                >
+                  <Text style={styles.resultNumber}>{drawnNumber}</Text>
+                </Animated.View>
+                <Text style={styles.drawnCount}>
+                  Đã quay: {drawnNumbers.length}/{parseInt(maxNumber) - parseInt(minNumber) + 1}
+                </Text>
+              </>
+            ) : (
+              <View style={styles.emptyResult}>
+                <Text style={styles.emptyResultText}>🎲</Text>
+                <Text style={styles.emptyResultSubtext}>
+                  Nhấn nút bên dưới để quay số
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.buttonRow}>
@@ -578,8 +580,7 @@ const styles = StyleSheet.create({
   resultContainer: {
     backgroundColor: '#fff',
     margin: 15,
-    padding: 40,
-    paddingTop: 20,
+    padding: 20,
     borderRadius: 15,
     alignItems: 'center',
     shadowColor: '#000',
@@ -587,13 +588,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
-    minHeight: 250,
-    justifyContent: 'center',
+    minHeight: 300,
   },
   autoControlInResult: {
-    position: 'absolute',
-    top: 15,
-    right: 15,
+    alignSelf: 'flex-end',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
@@ -605,6 +603,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+    marginBottom: 10,
+    zIndex: 1,
+  },
+  resultContentWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
   },
   autoLabelInResult: {
     fontSize: 14,
