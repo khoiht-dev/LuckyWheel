@@ -1,6 +1,8 @@
 node_modules/
 .expo/
 dist/
+build/
+.parcel-cache/
 npm-debug.*
 *.jks
 *.p8
