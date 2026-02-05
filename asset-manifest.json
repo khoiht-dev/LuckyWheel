@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/LuckyWheel/static/js/main.2390bdf3.js",
+    "main.js": "/LuckyWheel/static/js/main.12c623a5.js",
     "index.html": "/LuckyWheel/index.html",
-    "main.2390bdf3.js.map": "/LuckyWheel/static/js/main.2390bdf3.js.map"
+    "main.12c623a5.js.map": "/LuckyWheel/static/js/main.12c623a5.js.map"
   },
   "entrypoints": [
-    "static/js/main.2390bdf3.js"
+    "static/js/main.12c623a5.js"
   ]
 }
