@@ -8,6 +8,7 @@ import {
   TextInput,
   SafeAreaView,
   Animated,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
@@ -26,6 +27,14 @@ export default function App() {
   const [searchNumber, setSearchNumber] = useState('');
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
   const spinValue = useState(new Animated.Value(0))[0];
+
+  // Loto tracking states
+  const [lotoCards, setLotoCards] = useState([]);
+  const [currentCardInput, setCurrentCardInput] = useState('');
+  const [editingCardIndex, setEditingCardIndex] = useState(null);
+  const [trackedNumbers, setTrackedNumbers] = useState([]);
+  const [winningCards, setWinningCards] = useState([]);
+  const [trackingInput, setTrackingInput] = useState('');
 
   // Load history from storage
   useEffect(() => {
@@ -140,7 +149,10 @@ export default function App() {
         const finalIndex = Math.floor(Math.random() * availableNumbers.length);
         const finalNumber = availableNumbers[finalIndex];
         setDrawnNumber(finalNumber);
-        setDrawnNumbers([...drawnNumbers, finalNumber]);
+        setDrawnNumbers(prev => [...prev, finalNumber]);
+        
+        // Auto track in loto cards
+        trackNumberInCards(finalNumber);
         
         // Display time based on user input
         const displayDuration = (parseFloat(displayTime) || 1) * 1000;
@@ -165,6 +177,123 @@ export default function App() {
     await AsyncStorage.removeItem('spinHistory');
   };
 
+  // Loto Tracking Functions
+  const addLotoCard = () => {
+    if (!currentCardInput.trim()) return;
+    
+    // Parse input: expected format "12 - 34 40 - 75 89 - -, 8 16 - 42 55 - 77 - -, 5 - 24 33 - 67 - 83 -"
+    const rawRows = currentCardInput.split(',').map(r => r.trim());
+    
+    // Filter out empty rows (handles trailing commas)
+    const rows = rawRows.filter(r => r.length > 0);
+
+    if (rows.length !== 3) {
+      alert(`Vui lòng nhập đủ 3 hàng (bạn nhập ${rows.length} hàng). Cách nhau bằng dấu phẩy.`);
+      return;
+    }
+
+    const card = {
+      id: Date.now(),
+      rows: rows.map(row => {
+        const cells = row.split(/\s+/).filter(n => n);
+        if (cells.length !== 9) {
+          alert('Mỗi hàng phải có đủ 9 ô (dùng - cho ô trống)');
+          throw new Error('Invalid row length');
+        }
+        return cells.map(cell => cell === '-' ? undefined : parseInt(cell));
+      }),
+      markedCells: Array(3).fill(null).map(() => Array(9).fill(false))
+    };
+
+    // Validate
+    if (card.rows.some(row => row.length !== 9)) {
+      alert('Mỗi hàng phải có đủ 9 ô');
+      return;
+    }
+
+    if (editingCardIndex !== null) {
+      const newCards = [...lotoCards];
+      newCards[editingCardIndex] = card;
+      setLotoCards(newCards);
+      setEditingCardIndex(null);
+    } else {
+      setLotoCards([...lotoCards, card]);
+    }
+    
+    setCurrentCardInput('');
+  };
+
+  const deleteCard = (index) => {
+    const newCards = lotoCards.filter((_, i) => i !== index);
+    setLotoCards(newCards);
+    setWinningCards(winningCards.filter(i => i !== index));
+  };
+
+  const editCard = (index) => {
+    const card = lotoCards[index];
+    const cardString = card.rows.map(row => 
+      row.map(cell => cell === undefined ? '-' : cell).join(' ')
+    ).join(', ');
+    setCurrentCardInput(cardString);
+    setEditingCardIndex(index);
+  };
+
+  const trackNumberInCards = (number) => {
+    if (trackedNumbers.includes(number)) return;
+    
+    setTrackedNumbers(prev => [...prev, number]);
+    
+    const newCards = lotoCards.map((card, cardIndex) => {
+      const newMarkedCells = card.markedCells.map((row, rowIndex) => 
+        row.map((marked, colIndex) => {
+          if (card.rows[rowIndex][colIndex] === number) {
+            return true;
+          }
+          return marked;
+        })
+      );
+
+      // Check if any row is complete
+      const hasWinningRow = newMarkedCells.some(row => {
+        const filledCells = row.filter((_, idx) => card.rows[newMarkedCells.indexOf(row)][idx] !== undefined);
+        const markedFilledCells = filledCells.filter((marked, idx) => {
+          const rowIdx = newMarkedCells.indexOf(row);
+          return marked && card.rows[rowIdx][idx] !== undefined;
+        });
+        return markedFilledCells.length === filledCells.length && filledCells.length > 0;
+      });
+
+      if (hasWinningRow && !winningCards.includes(cardIndex)) {
+        setWinningCards(prev => [...prev, cardIndex]);
+        setIsAutoMode(false); // Stop auto mode when winning
+      }
+
+      return { ...card, markedCells: newMarkedCells };
+    });
+
+    setLotoCards(newCards);
+  };
+
+  const manualTrackNumber = () => {
+    const numbers = trackingInput.split(',').map(n => n.trim()).filter(n => n);
+    numbers.forEach(numStr => {
+      const num = parseInt(numStr);
+      if (!isNaN(num)) {
+        trackNumberInCards(num);
+      }
+    });
+    setTrackingInput('');
+  };
+
+  const resetTracking = () => {
+    setLotoCards(lotoCards.map(card => ({
+      ...card,
+      markedCells: Array(3).fill(null).map(() => Array(9).fill(false))
+    })));
+    setTrackedNumbers([]);
+    setWinningCards([]);
+  };
+
   const spin = spinValue.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '720deg'],
@@ -173,7 +302,12 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        nestedScrollEnabled={true}
+        showsVerticalScrollIndicator={true}
+      >
         <View style={styles.header}>
           <Text style={styles.title}>🎰 Quay Số May Mắn</Text>
           <Text style={styles.subtitle}>Nhập khoảng số và quay thôi!</Text>
@@ -258,6 +392,40 @@ export default function App() {
                   <Text style={styles.intervalUnit}>giây</Text>
                 </View>
               </View>
+
+              {/* Loto Card Input */}
+              <View style={styles.settingGroup}>
+                <Text style={styles.settingGroupTitle}>🎯 Nhập vé loto:</Text>
+                <Text style={styles.cardInputHintSmall}>
+                  Nhập 3 hàng, mỗi hàng 9 ô (dùng - cho ô trống){'\n'}
+                  VD: 12 - 34 40 - 75 89 - -, 8 16 - 42 55 - 77 - -, 5 - 24 33 - 67 - 83 -
+                </Text>
+                <TextInput
+                  style={styles.cardInputTextSmall}
+                  value={currentCardInput}
+                  onChangeText={setCurrentCardInput}
+                  placeholder="12 - 34 40 - 75 89 - -, ..."
+                  multiline
+                />
+                <View style={styles.cardInputButtons}>
+                  <TouchableOpacity style={styles.addCardButtonSmall} onPress={addLotoCard}>
+                    <Text style={styles.addCardButtonText}>
+                      {editingCardIndex !== null ? '💾 Lưu' : '➕ Thêm vé'}
+                    </Text>
+                  </TouchableOpacity>
+                  {editingCardIndex !== null && (
+                    <TouchableOpacity 
+                      style={styles.cancelEditButton} 
+                      onPress={() => {
+                        setEditingCardIndex(null);
+                        setCurrentCardInput('');
+                      }}
+                    >
+                      <Text style={styles.cancelEditButtonText}>❌ Hủy</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
             </>
           )}
         </View>
@@ -306,6 +474,101 @@ export default function App() {
             )}
           </View>
         </View>
+
+        {/* Loto Tracking Grid */}
+        {lotoCards.length > 0 && (
+          <View style={styles.lotoTrackingSection}>
+            <View style={styles.lotoTrackingHeader}>
+              <Text style={styles.lotoTrackingTitle}>🎯 Vé Loto Tracking</Text>
+              <TouchableOpacity onPress={resetTracking}>
+                <Text style={styles.resetTrackingTextSmall}>🔄 Reset</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {trackedNumbers.length > 0 && (
+              <View style={styles.trackedSectionSmall}>
+                <Text style={styles.trackedTitleSmall}>Số đã tracking ({trackedNumbers.length}):</Text>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false}
+                  nestedScrollEnabled={true}
+                >
+                  <View style={styles.trackedGridSmall}>
+                    {trackedNumbers.map((num, idx) => (
+                      <View key={idx} style={styles.trackedNumberSmall}>
+                        <Text style={styles.trackedNumberTextSmall}>{num}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            )}
+
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={true} 
+              style={styles.cardsScrollContainer}
+              nestedScrollEnabled={true}
+            >
+              <View style={styles.cardsRow}>
+                {lotoCards.map((card, cardIndex) => (
+                  <View 
+                    key={card.id} 
+                    style={[
+                      styles.lotoCardSmall,
+                      winningCards.includes(cardIndex) && styles.winningCardSmall
+                    ]}
+                  >
+                    <View style={styles.cardHeaderSmall}>
+                      <Text style={styles.cardTitleSmall}>
+                        {winningCards.includes(cardIndex) ? '🏆 VÉ #' : '🎫 VÉ #'}{cardIndex + 1}
+                        {winningCards.includes(cardIndex) && ' - THẮNG! 🎉'}
+                      </Text>
+                      <View style={styles.cardActions}>
+                        <TouchableOpacity onPress={() => editCard(cardIndex)}>
+                          <Text style={styles.cardActionTextSmall}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deleteCard(cardIndex)}>
+                          <Text style={styles.cardActionTextSmall}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.cardGridSmall}>
+                      {card.rows.map((row, rowIndex) => (
+                        <View key={rowIndex} style={styles.cardRowSmall}>
+                          {row.map((number, colIndex) => {
+                            const isMarked = card.markedCells[rowIndex][colIndex];
+                            
+                            return (
+                              <View 
+                                key={colIndex} 
+                                style={[
+                                  styles.cardCellSmall,
+                                  number === undefined && styles.emptyCellSmall,
+                                  isMarked && styles.markedCellSmall
+                                ]}
+                              >
+                                {number !== undefined && (
+                                  <Text style={[
+                                    styles.cardCellTextSmall,
+                                    isMarked && styles.markedCellTextSmall
+                                  ]}>
+                                    {number}
+                                  </Text>
+                                )}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        )}
 
         <View style={styles.buttonRow}>
           <TouchableOpacity
@@ -378,8 +641,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    ...Platform.select({
+      web: {
+        height: '100vh',
+        overflow: 'hidden',
+      },
+    }),
+  },
+  scrollView: {
+    flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: 30,
   },
   header: {
@@ -866,5 +1139,422 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontWeight: '600',
+  },
+  // Tracking Tab Styles
+  trackingContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  trackingHeader: {
+    backgroundColor: '#6200ea',
+    padding: 20,
+    alignItems: 'center',
+  },
+  trackingTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 5,
+  },
+  trackingSubtitle: {
+    fontSize: 14,
+    color: '#fff',
+    opacity: 0.9,
+  },
+  cardInputSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    margin: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  cardInputLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  cardInputHint: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  cardInputText: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 14,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  cardInputButtons: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 10,
+  },
+  addCardButton: {
+    flex: 1,
+    backgroundColor: '#4caf50',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  addCardButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  cancelEditButton: {
+    flex: 1,
+    backgroundColor: '#f44336',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  cancelEditButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  manualTrackSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  manualTrackLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  manualTrackRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  manualTrackInput: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  trackButton: {
+    backgroundColor: '#6200ea',
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  trackedSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  trackedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  trackedTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  resetTrackingText: {
+    fontSize: 14,
+    color: '#f44336',
+    fontWeight: '600',
+  },
+  trackedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  trackedNumber: {
+    width: 50,
+    height: 50,
+    backgroundColor: '#4caf50',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trackedNumberText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardsScrollView: {
+    flex: 1,
+    paddingHorizontal: 15,
+  },
+  emptyCards: {
+    alignItems: 'center',
+    paddingVertical: 50,
+  },
+  emptyCardsText: {
+    fontSize: 80,
+    marginBottom: 15,
+  },
+  emptyCardsSubtext: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  lotoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 3,
+    borderColor: '#e0e0e0',
+  },
+  winningCard: {
+    borderColor: '#ffd700',
+    backgroundColor: '#fffbf0',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  cardActionText: {
+    fontSize: 20,
+  },
+  cardGrid: {
+    gap: 5,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  cardCell: {
+    flex: 1,
+    aspectRatio: 1,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ffa000',
+  },
+  emptyCell: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#e0e0e0',
+  },
+  markedCell: {
+    backgroundColor: '#4caf50',
+    borderColor: '#2e7d32',
+  },
+  cardCellText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#e65100',
+  },
+  markedCellText: {
+    color: '#fff',
+  },
+  // Inline Loto Tracking Styles
+  cardInputHintSmall: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 10,
+    lineHeight: 16,
+  },
+  cardInputTextSmall: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    minHeight: 70,
+    textAlignVertical: 'top',
+  },
+  addCardButtonSmall: {
+    flex: 1,
+    backgroundColor: '#4caf50',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  lotoTrackingSection: {
+    backgroundColor: '#fff',
+    margin: 15,
+    padding: 15,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  lotoTrackingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+  },
+  lotoTrackingTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  resetTrackingTextSmall: {
+    fontSize: 14,
+    color: '#f44336',
+    fontWeight: '600',
+  },
+  trackedSectionSmall: {
+    marginBottom: 15,
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+  },
+  trackedTitleSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  trackedGridSmall: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingRight: 15,
+  },
+  cardsScrollContainer: {
+    maxHeight: 200,
+  },
+  trackedNumberSmall: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#4caf50',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trackedNumberTextSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardsRow: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  lotoCardSmall: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    width: 350,
+    marginRight: 10,
+  },
+  winningCardSmall: {
+    borderColor: '#ffd700',
+    backgroundColor: '#fffbf0',
+  },
+  cardHeaderSmall: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  cardTitleSmall: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  cardActionTextSmall: {
+    fontSize: 18,
+  },
+  cardGridSmall: {
+    gap: 4,
+  },
+  cardRowSmall: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  cardCellSmall: {
+    width: 32,
+    height: 32,
+    backgroundColor: '#fff3e0',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ffa000',
+  },
+  emptyCellSmall: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#e0e0e0',
+  },
+  markedCellSmall: {
+    backgroundColor: '#4caf50',
+    borderColor: '#2e7d32',
+  },
+  cardCellTextSmall: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#e65100',
+  },
+  markedCellTextSmall: {
+    color: '#fff',
   },
 });
